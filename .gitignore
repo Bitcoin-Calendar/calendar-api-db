@@ -1,0 +1,25 @@
+# Environment variables file
+.env
+
+# Go build outputs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Output of go build
+api_server
+migrate_tool
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Log files
+logs/
+
+# Migration script (local utility)
+migrate.go
+
+

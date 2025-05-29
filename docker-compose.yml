@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - API_KEYS=${API_KEYS} # Read API_KEYS from .env file or host environment
+    env_file:
+      - .env # Specify .env file for environment variables
+    # Optional: Define environment variables if your app uses them
+    # environment:
+    #   - PORT=3000
+    #   - DB_PATH=/app/data/events.db 
