@@ -45,4 +45,8 @@ The API server uses the following environment variables:
 -   `DB_PATH_RU`: Path to the Russian SQLite database. Defaults to `./data/events_ru.db`.
 -   `PORT`: Port for the API server. Defaults to `3000`. 
 
+## Testing
+
+API will be publicly available in Q3 2025, if you want to test API now, DM [@Tony](https://njump.me/npub10awzknjg5r5lajnr53438ndcyjylgqsrnrtq5grs495v42qc6awsj45ys7) on Nostr – he'll be happy to share a key with you.
+
 [![⚡️zapmeacoffee](https://img.shields.io/badge/⚡️zap_-me_a_coffee-violet?style=plastic)](https://zapmeacoffee.com/npub1tcalvjvswjh5rwhr3gywmfjzghthexjpddzvlxre9wxfqz4euqys0309hn)
