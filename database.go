@@ -15,7 +15,7 @@ type Event struct {
 	Title       string    `json:"title" gorm:"size:255;not null"`
 	Description string    `json:"description" gorm:"type:text"`
 	Tags        string    `json:"tags" gorm:"size:500"`        // JSON array as string
-	Media       string    `json:"media" gorm:"type:text"`      // Link to media file
+	Media       string    `json:"media" gorm:"type:text"`      // Link to media file(s), stored as a JSON array string e.g., ["url1", "url2"]
 	References  string    `json:"references" gorm:"type:text"` // JSON array as string
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
