@@ -41,6 +41,18 @@ This is the primary table storing all historical event data in *both* database f
 *   **`idx_events_tags`**: Index on the `tags` column to speed up tag-based searches.
 *   An implicit index is created on `id` as it is the `PRIMARY KEY`.
 
+## Full-Text Search Table: `events_fts`
+
+To enable efficient full-text searching, the database utilizes an FTS5 virtual table named `events_fts`.
+
+*   **Purpose:** This table provides fast, indexed searching on the text content of the `events` table. It is used by the `/api/search` endpoint.
+*   **Indexed Columns:** The `events_fts` table indexes the content from the following columns of the `events` table:
+    *   `title`
+    *   `description`
+    *   `tags`
+*   **Synchronization:** The `events_fts` table is kept automatically synchronized with the main `events` table using database triggers. Any `INSERT`, `UPDATE`, or `DELETE` operation on `events` is automatically reflected in `events_fts`. This means no manual intervention is required to keep the search index up-to-date.
+*   **Creation:** The table and its triggers are created automatically by the `InitDB` function in `database.go` when the API server starts.
+
 ## Database Initialization and Migration (Schema)
 
 The database schema is managed by GORM (the Go ORM used in this project) via the `AutoMigrate` feature.

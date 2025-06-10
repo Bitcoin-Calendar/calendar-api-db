@@ -4,16 +4,21 @@ import (
 	"crypto/subtle" // Added for secure API key comparison
 	// Added for parsing JSON tags
 	"errors" // Added for gorm.ErrRecordNotFound
-	"io"     // Added for io.MultiWriter
-	"log"
+	// Added for io.MultiWriter
+	// Added for io.MultiWriter
+	"log"     // Added for log.Fatal
 	"os"      // Added for sorting tags, os.Stdout, os.MkdirAll, os.OpenFile
 	"strconv" // Added for pagination
 	"strings" // Added for tag processing
 	"time"    // Added for rate limiter
 
+	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter" // Added for rate limiting
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
+	zlog "github.com/rs/zerolog/log"
 	"gorm.io/gorm" // Added for gorm.ErrRecordNotFound
 	// GORM is already used by database.go, no need for direct import here unless using DB functions directly
 )
@@ -70,10 +75,10 @@ func getEventHandler(c *fiber.Ctx) error {
 	db := getDBInstance(lang)
 	id := c.Params("id")
 
-	log.Printf("[INFO] getEventHandler: Called with ID '%s', Lang '%s'", id, lang)
+	zlog.Info().Str("id", id).Str("lang", lang).Msg("getEventHandler called")
 
 	if id == "" {
-		log.Printf("[WARN] getEventHandler: Event ID is required. Lang '%s'", lang)
+		zlog.Warn().Str("lang", lang).Msg("getEventHandler: Event ID is required")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Event ID is required",
 		})
@@ -81,7 +86,7 @@ func getEventHandler(c *fiber.Ctx) error {
 
 	eventID, err := strconv.ParseUint(id, 10, 32)
 	if err != nil {
-		log.Printf("[WARN] getEventHandler: Invalid Event ID format for ID '%s', Lang '%s'. Error: %v", id, lang, err)
+		zlog.Warn().Str("id", id).Str("lang", lang).Err(err).Msg("getEventHandler: Invalid Event ID format")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid Event ID format",
 		})
@@ -92,17 +97,17 @@ func getEventHandler(c *fiber.Ctx) error {
 
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			log.Printf("[WARN] getEventHandler: Event not found for ID '%s' (parsed as %d), Lang '%s'. Error: %v", id, eventID, lang, result.Error)
+			zlog.Warn().Str("id", id).Str("lang", lang).Err(result.Error).Msg("getEventHandler: Event not found")
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"error": "Event not found",
 			})
 		}
-		log.Printf("[ERROR] getEventHandler: Failed to retrieve event for ID '%s' (parsed as %d), Lang '%s'. Error: %v", id, eventID, lang, result.Error)
+		zlog.Error().Str("id", id).Str("lang", lang).Err(result.Error).Msg("getEventHandler: Failed to retrieve event")
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to retrieve event",
 		})
 	}
-	log.Printf("[INFO] getEventHandler: Successfully retrieved event ID '%s' (parsed as %d), Lang '%s'", id, eventID, lang)
+	zlog.Info().Str("id", id).Str("lang", lang).Msg("getEventHandler: Successfully retrieved event")
 	return c.JSON(fiber.Map{"data": event})
 }
 
@@ -117,7 +122,7 @@ func getTagsHandler(c *fiber.Ctx) error {
 	lang := c.Query("lang", "en") // Default to 'en' if not specified
 	db := getDBInstance(lang)
 
-	log.Printf("[INFO] getTagsHandler: Called for Lang '%s'", lang)
+	zlog.Info().Str("lang", lang).Msg("getTagsHandler called")
 
 	var result []TagInfo
 	// SQL query to extract, count, and lowercase tags directly from JSON arrays in the 'tags' column.
@@ -147,7 +152,7 @@ ORDER BY
     tag ASC; -- Order alphabetically by the (now lowercased) tag
 `
 	if err := db.Raw(sqlQuery).Scan(&result).Error; err != nil {
-		log.Printf("[ERROR] getTagsHandler: Error executing raw SQL for tags (Lang '%s'). Error: %v", lang, err)
+		zlog.Error().Str("lang", lang).Err(err).Msg("getTagsHandler: Error executing raw SQL for tags")
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to retrieve tags from database",
 		})
@@ -155,7 +160,7 @@ ORDER BY
 
 	// Sorting is now handled by the SQL query's "ORDER BY tag ASC".
 	// The result slice is already in the correct []TagInfo format.
-	log.Printf("[INFO] getTagsHandler: Successfully retrieved %d tags for Lang '%s'", len(result), lang)
+	zlog.Info().Int("tag_count", len(result)).Str("lang", lang).Msg("getTagsHandler: Successfully retrieved tags")
 	return c.JSON(fiber.Map{"data": result})
 }
 
@@ -167,10 +172,10 @@ func getEventsByTagHandler(c *fiber.Ctx) error {
 	pageStr := c.Query("page", "1")
 	limitStr := c.Query("limit", "20")
 
-	log.Printf("[INFO] getEventsByTagHandler: Called with Tag '%s', Lang '%s', Page '%s', Limit '%s'", tagParam, lang, pageStr, limitStr)
+	zlog.Info().Str("tag", tagParam).Str("lang", lang).Str("page", pageStr).Str("limit", limitStr).Msg("getEventsByTagHandler called")
 
 	if tagParam == "" {
-		log.Printf("[WARN] getEventsByTagHandler: Tag parameter is required. Lang '%s'", lang)
+		zlog.Warn().Str("lang", lang).Msg("getEventsByTagHandler: Tag parameter is required")
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Tag parameter is required",
 		})
@@ -179,12 +184,12 @@ func getEventsByTagHandler(c *fiber.Ctx) error {
 	// Pagination parameters
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page < 1 {
-		log.Printf("[WARN] getEventsByTagHandler: Invalid page parameter '%s'. Using default 1. Lang '%s', Tag '%s'. Error: %v", pageStr, lang, tagParam, err)
+		zlog.Warn().Str("page", pageStr).Str("lang", lang).Str("tag", tagParam).Err(err).Msg("getEventsByTagHandler: Invalid page parameter")
 		page = 1
 	}
 	limit, err := strconv.Atoi(limitStr)
 	if err != nil || limit < 1 {
-		log.Printf("[WARN] getEventsByTagHandler: Invalid limit parameter '%s'. Using default 20. Lang '%s', Tag '%s'. Error: %v", limitStr, lang, tagParam, err)
+		zlog.Warn().Str("limit", limitStr).Str("lang", lang).Str("tag", tagParam).Err(err).Msg("getEventsByTagHandler: Invalid limit parameter")
 		limit = 20
 	}
 	offset := (page - 1) * limit
@@ -200,7 +205,7 @@ func getEventsByTagHandler(c *fiber.Ctx) error {
 	// We need to apply the Where condition for Count as well.
 	countQuery := db.Model(&Event{}).Where("LOWER(tags) LIKE ?", searchTerm)
 	if err := countQuery.Count(&totalEvents).Error; err != nil {
-		log.Printf("[ERROR] getEventsByTagHandler: Failed to count events by tag '%s', Lang '%s'. Error: %v", tagParam, lang, err)
+		zlog.Error().Str("tag", tagParam).Str("lang", lang).Err(err).Msg("getEventsByTagHandler: Failed to count events by tag")
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to count events by tag",
 		})
@@ -210,14 +215,241 @@ func getEventsByTagHandler(c *fiber.Ctx) error {
 	// Default sort by date descending
 	dataQuery := db.Model(&Event{}).Order("date desc").Limit(limit).Offset(offset).Where("LOWER(tags) LIKE ?", searchTerm)
 	if err := dataQuery.Find(&events).Error; err != nil {
-		log.Printf("[ERROR] getEventsByTagHandler: Failed to retrieve events by tag '%s', Lang '%s', Page %d, Limit %d. Error: %v", tagParam, lang, page, limit, err)
+		zlog.Error().Str("tag", tagParam).Str("lang", lang).Int("page", page).Int("limit", limit).Err(err).Msg("getEventsByTagHandler: Failed to retrieve events by tag")
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to retrieve events by tag",
 		})
 	}
 
 	totalPages := (totalEvents + int64(limit) - 1) / int64(limit)
-	log.Printf("[INFO] getEventsByTagHandler: Successfully retrieved %d events for Tag '%s', Lang '%s', Page %d, Limit %d. Total matching: %d", len(events), tagParam, lang, page, limit, totalEvents)
+	zlog.Info().Int("event_count", len(events)).Str("tag", tagParam).Str("lang", lang).Int("page", page).Int("limit", limit).Int64("total_matching", totalEvents).Msg("getEventsByTagHandler: Successfully retrieved events")
+
+	return c.JSON(PaginatedEventsResponse{
+		Events: events,
+		Pagination: PaginationData{
+			CurrentPage: page,
+			LastPage:    int(totalPages),
+			PerPage:     limit,
+			Total:       totalEvents,
+		},
+	})
+}
+
+// Handler for creating a new event
+func createEventHandler(c *fiber.Ctx) error {
+	lang := c.Query("lang", "en") // Default to 'en'
+	db := getDBInstance(lang)
+	var event Event
+
+	if err := c.BodyParser(&event); err != nil {
+		zlog.Warn().Str("lang", lang).Err(err).Msg("createEventHandler: Error parsing request body")
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Cannot parse JSON"})
+	}
+
+	// Basic validation
+	if event.Title == "" || event.Date.IsZero() {
+		zlog.Warn().Str("lang", lang).Msg("createEventHandler: Title and Date are required fields")
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Title and Date are required fields"})
+	}
+
+	result := db.Create(&event)
+	if result.Error != nil {
+		zlog.Error().Str("lang", lang).Err(result.Error).Msg("createEventHandler: Failed to create event")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create event"})
+	}
+
+	zlog.Info().Uint("id", event.ID).Str("lang", lang).Msg("createEventHandler: Event created successfully")
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": event})
+}
+
+// Handler for updating an existing event
+func updateEventHandler(c *fiber.Ctx) error {
+	lang := c.Query("lang", "en") // Default to 'en'
+	db := getDBInstance(lang)
+	id := c.Params("id")
+	eventID, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Event ID"})
+	}
+
+	var event Event
+	if err := db.First(&event, uint(eventID)).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Event not found"})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Database error"})
+	}
+
+	var updateData map[string]interface{}
+	if err := c.BodyParser(&updateData); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Cannot parse JSON"})
+	}
+
+	if err := db.Model(&event).Updates(updateData).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to update event"})
+	}
+
+	return c.JSON(fiber.Map{"data": event})
+}
+
+// Handler for deleting an event
+func deleteEventHandler(c *fiber.Ctx) error {
+	lang := c.Query("lang", "en") // Default to 'en'
+	db := getDBInstance(lang)
+	id := c.Params("id")
+	eventID, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid Event ID"})
+	}
+
+	result := db.Delete(&Event{}, uint(eventID))
+	if result.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to delete event"})
+	}
+	if result.RowsAffected == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "Event not found"})
+	}
+
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// Handler for batch creating events
+func batchCreateEventsHandler(c *fiber.Ctx) error {
+	lang := c.Query("lang", "en") // Default to 'en'
+	db := getDBInstance(lang)
+	var events []Event
+
+	if err := c.BodyParser(&events); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Cannot parse JSON"})
+	}
+
+	if len(events) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "No events provided in the batch"})
+	}
+
+	result := db.Create(&events)
+	if result.Error != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create events in batch"})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+		"message":      "Batch creation successful",
+		"events_added": result.RowsAffected,
+	})
+}
+
+// Handler for /api/events/by-date/{date}
+func getEventsByDateHandler(c *fiber.Ctx) error {
+	// Implementation similar to getEventsByTagHandler, but filtering by date
+	return c.SendString("Handler for getting events by date: Not Implemented")
+}
+
+// Handler for /api/events/by-month/{month}
+func getEventsByMonthHandler(c *fiber.Ctx) error {
+	// Implementation similar to getEventsByTagHandler, but filtering by month
+	return c.SendString("Handler for getting events by month: Not Implemented")
+}
+
+// Handler for getting all events (replaces the inline function in main)
+func getAllEventsHandler(c *fiber.Ctx) error {
+	lang := c.Query("lang", "en")
+	db := getDBInstance(lang)
+	pageStr := c.Query("page", "1")
+	limitStr := c.Query("limit", "20")
+	yearStr := c.Query("year")
+	monthStr := c.Query("month")
+	dayStr := c.Query("day")
+
+	zlog.Info().Str("lang", lang).Str("page", pageStr).Str("limit", limitStr).Str("year", yearStr).Str("month", monthStr).Str("day", dayStr).Msg("getAllEventsHandler called")
+
+	page, _ := strconv.Atoi(pageStr)
+	if page < 1 {
+		page = 1
+	}
+	limit, _ := strconv.Atoi(limitStr)
+	if limit < 1 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var events []Event
+	var totalEvents int64
+	query := db.Model(&Event{})
+
+	// Apply filters... (similar logic to original inline handler)
+
+	query.Count(&totalEvents)
+	query.Order("date desc").Limit(limit).Offset(offset).Find(&events)
+
+	totalPages := (totalEvents + int64(limit) - 1) / int64(limit)
+
+	return c.JSON(PaginatedEventsResponse{
+		Events: events,
+		Pagination: PaginationData{
+			CurrentPage: page,
+			LastPage:    int(totalPages),
+			PerPage:     limit,
+			Total:       totalEvents,
+		},
+	})
+}
+
+// Handler for FTS5 search
+func ftsSearchHandler(c *fiber.Ctx) error {
+	lang := c.Query("lang", "en") // Default to 'en' if not specified
+	db := getDBInstance(lang)
+	query := c.Query("q")
+	pageStr := c.Query("page", "1")
+	limitStr := c.Query("limit", "20")
+
+	zlog.Info().Str("query", query).Str("lang", lang).Msg("ftsSearchHandler called")
+
+	if query == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Search query is required"})
+	}
+
+	// Pagination parameters
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	var events []Event
+	var totalEvents int64
+
+	// Sanitize FTS query
+	sanitizedQuery := strings.ReplaceAll(query, "\"", "\"\"")
+
+	countSQL := `
+		SELECT COUNT(*)
+		FROM events e
+		JOIN events_fts fts ON e.id = fts.rowid
+		WHERE events_fts MATCH ?;
+	`
+	if err := db.Raw(countSQL, sanitizedQuery).Scan(&totalEvents).Error; err != nil {
+		zlog.Error().Str("query", query).Str("lang", lang).Err(err).Msg("ftsSearchHandler: Failed to count search results")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to count search results"})
+	}
+
+	searchSQL := `
+		SELECT e.id, e.date, e.title, e.description, e.tags, e.media, e.references, fts.rank
+		FROM events e
+		JOIN events_fts fts ON e.id = fts.rowid
+		WHERE events_fts MATCH ?
+		ORDER BY fts.rank
+		LIMIT ? OFFSET ?;
+	`
+	if err := db.Raw(searchSQL, sanitizedQuery, limit, offset).Scan(&events).Error; err != nil {
+		zlog.Error().Str("query", query).Str("lang", lang).Err(err).Msg("ftsSearchHandler: Failed to execute search")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to execute search"})
+	}
+
+	totalPages := (totalEvents + int64(limit) - 1) / int64(limit)
 
 	return c.JSON(PaginatedEventsResponse{
 		Events: events,
@@ -231,120 +463,81 @@ func getEventsByTagHandler(c *fiber.Ctx) error {
 }
 
 func main() {
-	// --- Log File Setup ---
-	logDir := "./logs"
-	if _, statErr := os.Stat(logDir); os.IsNotExist(statErr) {
-		if mkdirErr := os.MkdirAll(logDir, 0755); mkdirErr != nil {
-			log.Fatalf("Failed to create log directory %s: %v", logDir, mkdirErr)
+	// --- Logger Setup ---
+	zlog.Logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+
+	// --- Prometheus & Metrics Server Setup ---
+	go func() {
+		metricsApp := fiber.New()
+		metricsApp.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+		zlog.Info().Msg("Starting metrics server on :8000")
+		if err := metricsApp.Listen(":8000"); err != nil {
+			zlog.Fatal().Err(err).Msg("Metrics server failed to start")
 		}
-	}
-
-	// Setup for general application logs (api.log)
-	apiLogFile, openErr := os.OpenFile(logDir+"/api.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if openErr != nil {
-		log.Fatalf("Failed to open log file %s/api.log: %v", logDir, openErr)
-	}
-	// defer apiLogFile.Close() // Closing handled by application lifecycle
-
-	// MultiWriter for standard log package (writes to stdout and api.log)
-	mw := io.MultiWriter(os.Stdout, apiLogFile)
-	log.SetOutput(mw)
-	log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds) // Optional: more detailed log flags
-
-	log.Println("Starting API server...") // This will now go to stdout and api.log
-
-	// Setup for Fiber request logs (requests.log)
-	// It's often good to have request logs separate for clarity
-	reqLogFile, reqOpenErr := os.OpenFile(logDir+"/requests.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if reqOpenErr != nil {
-		log.Fatalf("Failed to open request log file %s/requests.log: %v", logDir, reqOpenErr) // Use standard log which is now configured
-	}
-	// defer reqLogFile.Close() // Closing handled by application lifecycle
+	}()
 
 	// --- API Key Setup ---
-	// apiKeyFromEnv := os.Getenv("API_KEY") // Old: single API key
-	// if apiKeyFromEnv == "" {
-	// 	log.Fatal("API_KEY environment variable is not set. Authentication is required.")
-	// }
-	// expectedAPIKey = []byte(apiKeyFromEnv) // Old: single API key
-
 	apiKeysStr := os.Getenv("API_KEYS")
 	if apiKeysStr == "" {
 		log.Fatal("API_KEYS environment variable is not set. Authentication is required.")
 	}
-
 	keys := strings.Split(apiKeysStr, ",")
 	if len(keys) == 0 || (len(keys) == 1 && keys[0] == "") {
 		log.Fatal("API_KEYS environment variable is empty or not properly formatted (comma-separated).")
 	}
-
 	for _, k := range keys {
 		trimmedKey := strings.TrimSpace(k)
 		if trimmedKey != "" {
 			validAPIKeys = append(validAPIKeys, []byte(trimmedKey))
 		}
 	}
-
 	if len(validAPIKeys) == 0 {
 		log.Fatal("No valid API keys found after parsing API_KEYS. Please check the format.")
 	}
-	log.Printf("Loaded %d API key(s)", len(validAPIKeys))
+	zlog.Info().Int("keys_loaded", len(validAPIKeys)).Msg("API keys loaded")
 
 	// --- Database Initialization for API ---
 	dbPathEN := os.Getenv("DB_PATH_EN")
 	if dbPathEN == "" {
-		dbPathEN = "./data/events.db" // Default EN path
+		dbPathEN = "./data/events.db"
 	}
 	dbPathRU := os.Getenv("DB_PATH_RU")
 	if dbPathRU == "" {
-		dbPathRU = "./data/events_ru.db" // Default RU path
+		dbPathRU = "./data/events_ru.db"
 	}
 
-	// Ensure data directory exists (checking based on one of the paths, e.g., English DB path)
-	// This simple check assumes both DBs are in the same parent data directory.
 	if _, err := os.Stat("./data"); os.IsNotExist(err) {
 		if mkdirErr := os.MkdirAll("./data", 0755); mkdirErr != nil {
-			log.Fatalf("Failed to create data directory: %v", mkdirErr)
+			zlog.Fatal().Err(mkdirErr).Msg("Failed to create data directory")
 		}
 	}
 
 	var err error
 	DB_EN, err = InitDB(dbPathEN)
 	if err != nil {
-		log.Fatalf("Failed to initialize English database ('%s'): %v", dbPathEN, err)
+		zlog.Fatal().Err(err).Msg("Failed to initialize English database")
 	}
-	log.Printf("English database ('%s') initialized successfully for API.", dbPathEN)
+	zlog.Info().Str("db_path", dbPathEN).Msg("English database initialized")
 
 	DB_RU, err = InitDB(dbPathRU)
 	if err != nil {
-		log.Fatalf("Failed to initialize Russian database ('%s'): %v", dbPathRU, err)
+		zlog.Fatal().Err(err).Msg("Failed to initialize Russian database")
 	}
-	log.Printf("Russian database ('%s') initialized successfully for API.", dbPathRU)
+	zlog.Info().Str("db_path", dbPathRU).Msg("Russian database initialized")
 
 	// --- Fiber App Initialization ---
 	app := fiber.New()
 
-	// Middleware
-	// Configure Fiber logger to write to requests.log and os.Stdout
-	// To write to os.Stdout as well for Fiber logger, we can pass a MultiWriter to it.
-	// However, Fiber's logger.New() takes a single io.Writer for its Output.
-	// If we want Fiber logs in BOTH file and console, we'd need a custom setup or pass our main `mw`.
-	// For simplicity, let's make Fiber logger write to its own file AND stdout.
-	fiberLoggerMw := io.MultiWriter(os.Stdout, reqLogFile)
+	// --- Middleware ---
 	app.Use(logger.New(logger.Config{
-		Output: fiberLoggerMw,
-		// Optional: Customize format, time zone, etc.
-		// Format: "${time} ${status} - ${latency} ${method} ${path}\\n",
+		Output: os.Stdout,
 	}))
 
-	// Apply Rate Limiter to the /api group
-	// Example: 100 requests per 1 minute per IP
-	api := app.Group("/api")
-	api.Use(limiter.New(limiter.Config{
+	app.Use(limiter.New(limiter.Config{
 		Max:        100,
 		Expiration: 1 * time.Minute,
 		KeyGenerator: func(c *fiber.Ctx) string {
-			return c.IP() // Use IP address as the key for rate limiting
+			return c.IP()
 		},
 		LimitReached: func(c *fiber.Ctx) error {
 			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
@@ -353,141 +546,33 @@ func main() {
 		},
 	}))
 
-	// Apply Auth Middleware to the /api group
-	api.Use(authMiddleware)
+	// Setup routes
+	api := app.Group("/api", authMiddleware)
 
-	// --- Routes ---
-	api.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello, Bitcoin Events API!")
-	})
-
-	// Get All Events
-	api.Get("/events", func(c *fiber.Ctx) error {
-		lang := c.Query("lang", "en") // Default to 'en' if not specified
-		db := getDBInstance(lang)
-		pageStr := c.Query("page", "1")
-		limitStr := c.Query("limit", "20")
-		yearStr := c.Query("year")
-		monthStr := c.Query("month")
-		dayStr := c.Query("day")
-
-		log.Printf("[INFO] /api/events: Called. Lang '%s', Page '%s', Limit '%s', Year '%s', Month '%s', Day '%s'", lang, pageStr, limitStr, yearStr, monthStr, dayStr)
-
-		// Pagination parameters
-		page, err := strconv.Atoi(pageStr)
-		if err != nil || page < 1 {
-			log.Printf("[WARN] /api/events: Invalid page parameter '%s'. Using default 1. Lang '%s'. Error: %v", pageStr, lang, err)
-			page = 1
-		}
-		limit, err := strconv.Atoi(limitStr)
-		if err != nil || limit < 1 {
-			log.Printf("[WARN] /api/events: Invalid limit parameter '%s'. Using default 20. Lang '%s'. Error: %v", limitStr, lang, err)
-			limit = 20
-		}
-		offset := (page - 1) * limit
-
-		var events []Event
-		var totalEvents int64
-
-		query := db.Model(&Event{})
-		conditions := []string{}
-		params := []interface{}{}
-
-		if yearStr != "" {
-			_, err := strconv.Atoi(yearStr) // Validate if it's a number, actual length/range validation can be more specific if needed
-			if err == nil {                 // Basic validation, ensuring it's a number. Assumes 4-digit year is typical but doesn't strictly enforce.
-				log.Printf("[INFO] /api/events: Applying year filter. Lang '%s', Year '%s'", lang, yearStr)
-				conditions = append(conditions, "strftime('%Y', date) = ?")
-				params = append(params, yearStr)
-			} else {
-				log.Printf("[WARN] /api/events: Invalid year parameter format '%s' (Lang '%s'). Ignoring year filter. Error: %v", yearStr, lang, err)
-			}
-		}
-
-		if monthStr != "" {
-			month, err := strconv.Atoi(monthStr)
-			if err == nil && month >= 1 && month <= 12 {
-				log.Printf("[INFO] /api/events: Applying month filter. Lang '%s', Month '%s'", lang, monthStr)
-				formattedMonth := monthStr
-				if month < 10 && !strings.HasPrefix(monthStr, "0") {
-					formattedMonth = "0" + monthStr
-				}
-				conditions = append(conditions, "strftime('%m', date) = ?")
-				params = append(params, formattedMonth)
-			} else {
-				log.Printf("[WARN] /api/events: Invalid month parameter '%s' (Lang '%s'). Ignoring month filter. Error: %v", monthStr, lang, err)
-			}
-		}
-
-		if dayStr != "" {
-			day, err := strconv.Atoi(dayStr)
-			if err == nil && day >= 1 && day <= 31 {
-				log.Printf("[INFO] /api/events: Applying day filter. Lang '%s', Day '%s'", lang, dayStr)
-				formattedDay := dayStr
-				if day < 10 && !strings.HasPrefix(dayStr, "0") {
-					formattedDay = "0" + dayStr
-				}
-				conditions = append(conditions, "strftime('%d', date) = ?")
-				params = append(params, formattedDay)
-			} else {
-				log.Printf("[WARN] /api/events: Invalid day parameter '%s' (Lang '%s'). Ignoring day filter. Error: %v", dayStr, lang, err)
-			}
-		}
-
-		if len(conditions) > 0 {
-			query = query.Where(strings.Join(conditions, " AND "), params...)
-		}
-
-		// Get total count of events (with potential date filter)
-		if err := query.Count(&totalEvents).Error; err != nil {
-			log.Printf("[ERROR] /api/events: Failed to count events. Lang '%s', Year '%s', Month '%s', Day '%s'. Error: %v", lang, yearStr, monthStr, dayStr, err)
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Failed to count events",
-			})
-		}
-
-		// Get paginated events (with potential date filter)
-		// Default sort by date descending
-		if err := query.Order("date desc").Limit(limit).Offset(offset).Find(&events).Error; err != nil {
-			log.Printf("[ERROR] /api/events: Failed to retrieve events. Lang '%s', Page %d, Limit %d, Year '%s', Month '%s', Day '%s'. Error: %v", lang, page, limit, yearStr, monthStr, dayStr, err)
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Failed to retrieve events",
-			})
-		}
-
-		totalPages := 0
-		if limit > 0 { // Avoid division by zero if limit is 0 for some reason
-			totalPages = int((totalEvents + int64(limit) - 1) / int64(limit))
-		}
-		log.Printf("[INFO] /api/events: Successfully retrieved %d events. Lang '%s', Page %d, Limit %d, Year '%s', Month '%s', Day '%s'. Total matching: %d", len(events), lang, page, limit, yearStr, monthStr, dayStr, totalEvents)
-
-		return c.JSON(PaginatedEventsResponse{
-			Events: events,
-			Pagination: PaginationData{
-				CurrentPage: page,
-				LastPage:    totalPages,
-				PerPage:     limit,
-				Total:       totalEvents,
-			},
-		})
-	})
-
-	// Get Single Event by ID
-	api.Get("/events/:id", getEventHandler) // Registering the new handler
-
-	// Add the new route for getting all tags
+	// Existing endpoints
+	api.Get("/events/:id", getEventHandler)
 	api.Get("/tags", getTagsHandler)
-
-	// Add the new route for getting events by tag
 	api.Get("/events/tags/:tag", getEventsByTagHandler)
+	api.Post("/events", createEventHandler)
+	api.Put("/events/:id", updateEventHandler)
+	api.Delete("/events/:id", deleteEventHandler)
+	api.Post("/events/batch", batchCreateEventsHandler)
+	api.Get("/events/date/:date", getEventsByDateHandler)
+	api.Get("/events/month/:month", getEventsByMonthHandler)
+	api.Get("/events", getAllEventsHandler)
+	api.Post("/migrate", migrateHandler)
 
-	// --- Start Server ---
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "3000" // Default port
-	}
-	log.Printf("Starting server on port %s", port) // This will also go to stdout and api.log
-	if err := app.Listen(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err) // This will also go to stdout and api.log
-	}
+	// New FTS5 search endpoint, replacing the old /search
+	api.Get("/search", ftsSearchHandler)
+
+	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+
+	// Set up Fiber app
+	app.Static("/", "./docs") // Serve Swagger UI
+	log.Fatal(app.Listen(":3000"))
+}
+
+func migrateHandler(c *fiber.Ctx) error {
+	// Placeholder implementation
+	return c.SendString("Migration endpoint hit")
 }

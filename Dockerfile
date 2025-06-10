@@ -19,7 +19,7 @@ COPY . .
 
 # Compile the application
 # Ensure main.go, database.go (and any other necessary .go files) are in the current context
-RUN go build -o /app/api_server .
+RUN go build -tags "fts5" -o /app/api_server .
 
 # Start a new stage from a minimal base image
 FROM alpine:latest

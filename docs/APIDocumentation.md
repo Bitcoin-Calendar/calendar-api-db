@@ -24,9 +24,9 @@ Rate limiting is applied per IP address. The current limit is 100 requests per m
 
 The API provides the following main functionalities:
 
-*   **`/`**: Health check for the API.
 *   **`/events`**: Retrieve a paginated list of all events, with powerful filtering by date (year, month, day, or combinations) and language.
 *   **`/events/:id`**: Fetch a single event by its unique ID.
+*   **`/search`**: Perform a full-text search across event titles, descriptions, and tags.
 *   **`/tags`**: Get a list of all unique event tags and their usage counts.
 *   **`/events/tags/:tag`**: Retrieve a paginated list of events associated with a specific tag.
 
@@ -85,22 +85,7 @@ Error responses will typically be in JSON format, like:
 
 ## Endpoints
 
-### 1. Health Check
-
-*   **Endpoint:** `/`
-*   **Method:** `GET`
-*   **Description:** A simple health check endpoint. (Note: This endpoint is authenticated)
-*   **Query Parameters:** None
-*   **Request Body:** None
-*   **Success Response (200 OK):**
-    *   **Content-Type:** `text/plain`
-    *   **Body:** `Hello, Bitcoin Events API!`
-*   **Example:**
-    ```bash
-    curl -H "X-API-KEY: your_api_key" http://213.176.74.147:3001/api/
-    ```
-
-### 2. Get All Events (Paginated)
+### 1. Get All Events (Paginated)
 
 *   **Endpoint:** `/events`
 *   **Method:** `GET`
@@ -159,6 +144,47 @@ Error responses will typically be in JSON format, like:
 
     # Get Russian events for May 27th, 2020
     curl -H "X-API-KEY: your_api_key" "http://213.176.74.147:3001/api/events?year=2020&month=05&day=27&lang=ru"
+    ```
+
+### 2. Search Events (FTS5)
+
+*   **Endpoint:** `/search`
+*   **Method:** `GET`
+*   **Description:** Performs a full-text search across the `title`, `description`, and `tags` fields of events using SQLite's FTS5 extension. Results are sorted by relevance. Supports language selection and pagination.
+*   **Query Parameters:**
+    *   `q` (required, string): The search query. The query can use FTS5's syntax (e.g., `bitcoin AND halving`, `"satoshi nakamoto"`).
+    *   `page` (optional, integer): The page number to retrieve. Defaults to `1`.
+    *   `limit` (optional, integer): The number of events per page. Defaults to `20`.
+    *   `lang` (optional, string): Language for the events. `en` for English (default), `ru` for Russian.
+*   **Request Body:** None
+*   **Success Response (200 OK):**
+    *   **Content-Type:** `application/json`
+    *   **Body (follows the same structure as Get All Events `/events`):**
+        ```json
+        {
+          "events": [
+            // ... array of event objects matching the search query
+          ],
+          "pagination": {
+            "current_page": 1,
+            "per_page": 20,
+            "total": 15, // Total events matching the query
+            "last_page": 1
+          }
+        }
+        ```
+*   **Error Responses:**
+    *   `400 Bad Request`: If the `q` query parameter is missing.
+        ```json
+        { "error": "Search query is required" }
+        ```
+*   **Example:**
+    ```bash
+    # Search for English events containing "Satoshi"
+    curl -H "X-API-KEY: your_api_key" "http://213.176.74.147:3001/api/search?q=Satoshi&lang=en"
+
+    # Search for Russian events about "whitepaper", limit to 5 results
+    curl -H "X-API-KEY: your_api_key" "http://213.176.74.147:3001/api/search?q=whitepaper&limit=5&lang=ru"
     ```
 
 ### 3. Get Single Event by ID

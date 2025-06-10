@@ -24,6 +24,17 @@ This project provides a Go-based API server to access historical Bitcoin events 
 -   Fetching events by specific tags.
 -   Language support for event content (English and Russian).
 -   Rate limiting and API key authentication.
+-   Full-text search functionality on event titles, descriptions, and tags.
+
+## API Endpoints
+
+A brief overview of the main endpoints. For detailed information, see `docs/APIDocumentation.md`.
+
+-   `GET /api/events`: Lists all events with pagination.
+-   `GET /api/events/:id`: Fetches a single event by its ID.
+-   `GET /api/search?q={query}`: Performs a full-text search on events.
+-   `GET /api/tags`: Retrieves a list of all unique tags and their usage counts.
+-   `GET /api/events/tags/:tag`: Gets events associated with a specific tag.
 
 ## Documentation
 

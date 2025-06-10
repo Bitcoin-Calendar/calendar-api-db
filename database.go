@@ -19,6 +19,7 @@ type Event struct {
 	References  string    `json:"references" gorm:"type:text"` // JSON array as string
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	Rank        float64   `json:"-" gorm:"-"` // Omit from JSON and DB schema
 }
 
 // InitDB initializes the database connection and migrates the schema.
@@ -37,6 +38,70 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 	err = localDB.AutoMigrate(&Event{})
 	if err != nil {
 		return nil, err
+	}
+
+	// Create FTS5 virtual table
+	if err := localDB.Exec(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
+			title,
+			description,
+			tags,
+			content='events',
+			content_rowid='id'
+		);
+	`).Error; err != nil {
+		return nil, err
+	}
+
+	// Triggers to keep FTS table synchronized with events table
+	if err := localDB.Exec(`
+		CREATE TRIGGER IF NOT EXISTS events_after_insert
+		AFTER INSERT ON events
+		BEGIN
+			INSERT INTO events_fts(rowid, title, description, tags)
+			VALUES (new.id, new.title, new.description, new.tags);
+		END;
+	`).Error; err != nil {
+		return nil, err
+	}
+
+	if err := localDB.Exec(`
+		CREATE TRIGGER IF NOT EXISTS events_after_delete
+		AFTER DELETE ON events
+		BEGIN
+			INSERT INTO events_fts(events_fts, rowid, title, description, tags)
+			VALUES ('delete', old.id, old.title, old.description, old.tags);
+		END;
+	`).Error; err != nil {
+		return nil, err
+	}
+
+	if err := localDB.Exec(`
+		CREATE TRIGGER IF NOT EXISTS events_after_update
+		AFTER UPDATE ON events
+		BEGIN
+			INSERT INTO events_fts(events_fts, rowid, title, description, tags)
+			VALUES ('delete', old.id, old.title, old.description, old.tags);
+			INSERT INTO events_fts(rowid, title, description, tags)
+			VALUES (new.id, new.title, new.description, new.tags);
+		END;
+	`).Error; err != nil {
+		return nil, err
+	}
+
+	// Initial population of FTS table
+	var count int64
+	localDB.Model(&Event{}).Count(&count)
+	var ftsCount int64
+	localDB.Table("events_fts").Count(&ftsCount)
+
+	if count > 0 && ftsCount == 0 {
+		if err := localDB.Exec(`
+			INSERT INTO events_fts(rowid, title, description, tags)
+			SELECT id, title, description, tags FROM events;
+		`).Error; err != nil {
+			return nil, err
+		}
 	}
 
 	// Create indexes

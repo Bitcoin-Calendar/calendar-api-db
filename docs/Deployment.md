@@ -14,7 +14,7 @@ This guide provides instructions on how to build, run, and manage the Bitcoin Hi
 -   `main.go`: The main Go application file for the API server. Handles API requests, database connections, and language selection.
 -   `database.go`: Go source file defining the `Event` struct and the `InitDB` function for database initialization and schema migration.
 -   `go.mod`, `go.sum`: Go module files for dependency management.
--   `Dockerfile`: Defines the multi-stage Docker build for creating a lean production image of the API server.
+-   `Dockerfile`: Defines the multi-stage Docker build for creating a lean production image of the API server. The build process is specifically configured to compile SQLite with FTS5 support.
 -   `docker-compose.yml`: Configures the API service for Docker Compose, including build context, port mapping, volume mounts for data persistence, and environment variable settings.
 -   `data/`:
     -   `events.db`: SQLite database for English events (default).
