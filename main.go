@@ -14,6 +14,7 @@ import (
 
 	"github.com/gofiber/adaptor/v2"
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"    // Added for CORS support
 	"github.com/gofiber/fiber/v2/middleware/limiter" // Added for rate limiting
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -376,12 +377,45 @@ func getAllEventsHandler(c *fiber.Ctx) error {
 	var totalEvents int64
 	query := db.Model(&Event{})
 
-	// Apply filters... (similar logic to original inline handler)
+	// Apply date filters if they are provided
+	if yearStr != "" {
+		query = query.Where("strftime('%Y', date) = ?", yearStr)
+	}
+	if monthStr != "" {
+		// Ensure month is two-digit ("01"–"12") so that it matches the %m format returned by strftime.
+		// Accept both single-digit ("1") and double-digit ("01") inputs.
+		if len(monthStr) == 1 {
+			monthStr = "0" + monthStr
+		}
+		query = query.Where("strftime('%m', date) = ?", monthStr)
+	}
+	if dayStr != "" {
+		// Similar padding for day ("01"–"31").
+		if len(dayStr) == 1 {
+			dayStr = "0" + dayStr
+		}
+		query = query.Where("strftime('%d', date) = ?", dayStr)
+	}
 
-	query.Count(&totalEvents)
-	query.Order("date desc").Limit(limit).Offset(offset).Find(&events)
+	// First, get the total count of records that match the filter
+	if err := query.Count(&totalEvents).Error; err != nil {
+		zlog.Error().Str("lang", lang).Err(err).Msg("getAllEventsHandler: Failed to count events")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to count events",
+		})
+	}
+
+	// Then, apply pagination and retrieve the events
+	if err := query.Order("date desc").Limit(limit).Offset(offset).Find(&events).Error; err != nil {
+		zlog.Error().Str("lang", lang).Err(err).Msg("getAllEventsHandler: Failed to retrieve events")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to retrieve events",
+		})
+	}
 
 	totalPages := (totalEvents + int64(limit) - 1) / int64(limit)
+
+	zlog.Info().Int("event_count", len(events)).Int64("total_matching", totalEvents).Str("lang", lang).Msg("getAllEventsHandler: Successfully retrieved events")
 
 	return c.JSON(PaginatedEventsResponse{
 		Events: events,
@@ -460,6 +494,14 @@ func ftsSearchHandler(c *fiber.Ctx) error {
 			Total:       totalEvents,
 		},
 	})
+}
+
+func getAllowedOrigins() string {
+	v := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if v == "" {
+		return "http://localhost:3000"
+	}
+	return v
 }
 
 func main() {
@@ -546,6 +588,13 @@ func main() {
 		},
 	}))
 
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     getAllowedOrigins(),
+		AllowMethods:     "GET,HEAD,OPTIONS,POST,PUT,DELETE",
+		AllowHeaders:     "X-API-KEY,Content-Type",
+		AllowCredentials: false,
+	}))
+
 	// Setup routes
 	api := app.Group("/api", authMiddleware)
 
@@ -565,6 +614,8 @@ func main() {
 	// New FTS5 search endpoint, replacing the old /search
 	api.Get("/search", ftsSearchHandler)
 
+
+
 	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
 
 	// Set up Fiber app
@@ -576,3 +627,5 @@ func migrateHandler(c *fiber.Ctx) error {
 	// Placeholder implementation
 	return c.SendString("Migration endpoint hit")
 }
+
+

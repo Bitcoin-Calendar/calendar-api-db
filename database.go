@@ -27,7 +27,7 @@ type Event struct {
 func InitDB(dbPath string) (*gorm.DB, error) {
 	var err error
 	var localDB *gorm.DB // Use a local variable for the DB instance
-	localDB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	localDB, err = gorm.Open(sqlite.Open(dbPath+"?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=10000"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent), // Or logger.Info for more logs
 	})
 	if err != nil {

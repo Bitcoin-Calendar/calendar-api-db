@@ -54,7 +54,8 @@ The API server uses the following environment variables:
 -   `API_KEYS`: (Required) A comma-separated list of secret keys for API authentication. For example: `key1,key2,anotherkey`
 -   `DB_PATH_EN`: Path to the English SQLite database. Defaults to `./data/events.db`.
 -   `DB_PATH_RU`: Path to the Russian SQLite database. Defaults to `./data/events_ru.db`.
--   `PORT`: Port for the API server. Defaults to `3000`. 
+-   `PORT`: Port for the API server. Defaults to `3000`.
+-   `CORS_ALLOWED_ORIGINS`: Comma-separated list of allowed origins for CORS. Defaults to `http://localhost:3000`.
 
 ## Testing
 

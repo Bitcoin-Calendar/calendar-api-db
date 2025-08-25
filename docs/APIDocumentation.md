@@ -16,6 +16,10 @@ The API is served from the root of the application. If running on a server with 
 
 The API requires an API key to be passed in the `X-API-KEY` header for all endpoints under `/api`. The server can be configured with one or more comma-separated keys via the `API_KEYS` environment variable.
 
+### CORS
+
+Browser-based clients must comply with Cross-Origin Resource Sharing (CORS) rules. The server automatically adds the appropriate `Access-Control-*` headers when the request's `Origin` value is included in `CORS_ALLOWED_ORIGINS` (comma-separated list, defaults to `http://localhost:3000`).  Pre-flight `OPTIONS` requests are handled transparently and receive a `204 No Content` response.  Non-browser tools (curl, bots) that do not send the `Origin` header remain unaffected.
+
 ## Rate Limiting
 
 Rate limiting is applied per IP address. The current limit is 100 requests per minute.
